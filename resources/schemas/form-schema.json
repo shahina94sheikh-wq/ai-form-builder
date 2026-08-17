@@ -1,0 +1,40 @@
+{
+    "version": "1.0",
+    "title": "Internship Application",
+    "description": "Application form",
+    "settings": {
+        "submit_label": "Apply Now",
+        "success_message": "Application submitted successfully."
+    },
+    "sections": [
+        {
+            "id": "personal",
+            "title": "Personal Information",
+            "fields": [
+                {
+                    "id": "full_name",
+                    "key": "full_name",
+                    "type": "text",
+                    "label": "Full Name",
+                    "placeholder": "Enter your full name",
+                    "help": "",
+                    "default": "",
+                    "required": true,
+                    "validation": {
+                        "min": 2,
+                        "max": 100
+                    }
+                },
+                {
+                    "id": "email",
+                    "key": "email",
+                    "type": "email",
+                    "label": "Email Address",
+                    "placeholder": "you@example.com",
+                    "required": true,
+                    "validation": {}
+                }
+            ]
+        }
+    ]
+}
