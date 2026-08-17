@@ -503,7 +503,14 @@ IMPORTANT RULES:
 
 10. Do not remove existing validation unless explicitly requested.
 
-11. New fields must use sensible:
+11. Preserve the existing top-level conditional logic exactly as-is unless
+    the user explicitly asks to add, remove, or modify conditional logic.
+
+12. If the user is not asking about conditional logic, do not change the
+    existing "logic" array, its rules, source fields, operators, values,
+    actions, or target fields.
+
+13. New fields must use sensible:
 
 - id
 - type
@@ -765,6 +772,7 @@ TEXT;
                 'description',
                 'sections',
                 'settings',
+                'logic',
             ],
 
             'properties' => [
@@ -1112,6 +1120,77 @@ TEXT;
                                         ],
                                     ],
                                 ],
+                            ],
+                        ],
+                    ],
+                ],
+
+                /*
+                |--------------------------------------------------------------------------
+                | Conditional Logic
+                |--------------------------------------------------------------------------
+                |
+                | Conditional rules live at the root of the form schema.
+                | This property is intentionally shared by both AI generation
+                | and AI editing so AI edits cannot silently drop existing logic.
+                |--------------------------------------------------------------------------
+                */
+
+                'logic' => [
+
+                    'type' => 'array',
+
+                    'items' => [
+                        'type' => 'object',
+                        'additionalProperties' => false,
+                        'required' => [
+                            'when',
+                            'action',
+                            'target',
+                        ],
+                        'properties' => [
+
+                            'when' => [
+                                'type' => 'object',
+                                'additionalProperties' => false,
+                                'required' => [
+                                    'field',
+                                    'operator',
+                                    'value',
+                                ],
+                                'properties' => [
+                                    'field' => [
+                                        'type' => 'string',
+                                    ],
+                                    'operator' => [
+                                        'type' => 'string',
+                                        'enum' => [
+                                            'equals',
+                                            'not_equals',
+                                            'contains',
+                                            'not_contains',
+                                            'greater_than',
+                                            'less_than',
+                                            'greater_or_equal',
+                                            'less_or_equal',
+                                        ],
+                                    ],
+                                    'value' => [
+                                        'type' => 'string',
+                                    ],
+                                ],
+                            ],
+
+                            'action' => [
+                                'type' => 'string',
+                                'enum' => [
+                                    'show',
+                                    'hide',
+                                ],
+                            ],
+
+                            'target' => [
+                                'type' => 'string',
                             ],
                         ],
                     ],

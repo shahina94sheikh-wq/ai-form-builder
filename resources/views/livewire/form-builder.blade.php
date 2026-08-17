@@ -94,19 +94,9 @@
                         Form Canvas
                     </strong>
 
-                    <div class="d-flex align-items-center gap-2">
-                        <button
-                            type="button"
-                            class="btn btn-sm btn-outline-primary"
-                            wire:click="addSection"
-                        >
-                            + Add Section
-                        </button>
-
-                        <span class="text-muted small">
-                            Drag fields to reorder
-                        </span>
-                    </div>
+                    <span class="text-muted small">
+                        Drag fields to reorder
+                    </span>
 
                 </div>
 
@@ -121,34 +111,18 @@
 
                             {{-- SECTION HEADER --}}
 
-                            <div class="d-flex justify-content-between align-items-center mb-2 gap-2">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
 
-                                <div class="d-flex align-items-center gap-2 flex-grow-1">
+                                <h5 class="mb-0">
 
-                                    <input
-                                        type="text"
-                                        class="form-control form-control-sm fw-semibold"
-                                        value="{{ $section['title'] ?? 'Untitled Section' }}"
-                                        wire:change="updateSectionTitle({{ $sectionIndex }}, $event.target.value)"
-                                        aria-label="Section title"
-                                    >
+                                    {{ $section['title'] ?? 'Untitled Section' }}
 
-                                    <span class="badge bg-secondary text-nowrap">
-                                        {{ count($section['fields'] ?? []) }} fields
-                                    </span>
+                                </h5>
 
-                                </div>
-
-                                @if(count($schema['sections'] ?? []) > 1)
-                                    <button
-                                        type="button"
-                                        class="btn btn-sm btn-outline-danger"
-                                        wire:click="deleteSection({{ $sectionIndex }})"
-                                        wire:confirm="Delete this section and all fields inside it?"
-                                    >
-                                        Delete Section
-                                    </button>
-                                @endif
+                                <span class="badge bg-secondary">
+                                    {{ count($section['fields'] ?? []) }}
+                                    fields
+                                </span>
 
                             </div>
 
@@ -625,7 +599,10 @@
                         $selectedLogicSource = null;
 
                         foreach ($logicFields as $logicField) {
-                            if (($logicField['id'] ?? null) === $logicSourceField) {
+                            if (
+                                ($logicField['id'] ?? null) ===
+                                ($this->logicSourceField ?? null)
+                            ) {
                                 $selectedLogicSource = $logicField;
                                 break;
                             }
@@ -951,31 +928,6 @@
                         </div>
 
 
-                        {{-- MOVE TO SECTION --}}
-
-                        <div class="mb-3">
-
-                            <label class="form-label">
-                                Section
-                            </label>
-
-                            <select
-                                class="form-select"
-                                wire:change="moveFieldToSection('{{ $selectedField }}', $event.target.value)"
-                            >
-                                @foreach($schema['sections'] ?? [] as $sectionOption)
-                                    <option
-                                        value="{{ $sectionOption['id'] }}"
-                                        @selected(collect($sectionOption['fields'] ?? [])->contains(fn ($item) => ($item['id'] ?? null) === $selectedField))
-                                    >
-                                        {{ $sectionOption['title'] ?? 'Untitled Section' }}
-                                    </option>
-                                @endforeach
-                            </select>
-
-                        </div>
-
-
                         {{-- LABEL --}}
 
                         <div class="mb-3">
@@ -987,7 +939,7 @@
                             <input
                                 type="text"
                                 class="form-control"
-                                wire:model.live.debounce.500ms="selectedFieldData.label"
+                                wire:model.live="selectedFieldData.label"
                                 placeholder="Field label"
                             >
 
@@ -1005,7 +957,7 @@
                             <input
                                 type="text"
                                 class="form-control"
-                                wire:model.live.debounce.500ms="selectedFieldData.key"
+                                wire:model.live="selectedFieldData.key"
                                 placeholder="field_key"
                             >
 
@@ -1035,7 +987,7 @@
                                 <input
                                     type="text"
                                     class="form-control"
-                                    wire:model.live.debounce.500ms="selectedFieldData.placeholder"
+                                    wire:model.live="selectedFieldData.placeholder"
                                     placeholder="Enter placeholder..."
                                 >
 
@@ -1063,7 +1015,7 @@
                                 <input
                                     type="text"
                                     class="form-control"
-                                    wire:model.live.debounce.500ms="selectedFieldData.default"
+                                    wire:model.live="selectedFieldData.default"
                                     placeholder="Default value"
                                 >
 
@@ -1082,7 +1034,7 @@
 
                             <textarea
                                 class="form-control"
-                                wire:model.live.debounce.500ms="selectedFieldData.help"
+                                wire:model.live="selectedFieldData.help"
                                 rows="3"
                                 placeholder="Additional instructions..."
                             ></textarea>
@@ -1102,7 +1054,7 @@
                                 <input
                                     type="checkbox"
                                     class="form-check-input"
-                                    wire:model.live.debounce.500ms="selectedFieldData.required"
+                                    wire:model.live="selectedFieldData.required"
                                     id="selected-field-required"
                                 >
 
@@ -1170,7 +1122,7 @@
                                             <input
                                                 type="text"
                                                 class="form-control form-control-sm"
-                                                wire:model.live.debounce.500ms="selectedFieldData.options.{{ $index }}.label"
+                                                wire:model.live="selectedFieldData.options.{{ $index }}.label"
                                                 placeholder="Label"
                                             >
 
@@ -1186,7 +1138,7 @@
                                             <input
                                                 type="text"
                                                 class="form-control form-control-sm"
-                                                wire:model.live.debounce.500ms="selectedFieldData.options.{{ $index }}.value"
+                                                wire:model.live="selectedFieldData.options.{{ $index }}.value"
                                                 placeholder="value"
                                             >
 
@@ -1253,7 +1205,7 @@
                                     <input
                                         type="number"
                                         class="form-control"
-                                        wire:model.live.debounce.500ms="selectedFieldData.validation.min"
+                                        wire:model.live="selectedFieldData.validation.min"
                                     >
 
                                 </div>
@@ -1268,7 +1220,7 @@
                                     <input
                                         type="number"
                                         class="form-control"
-                                        wire:model.live.debounce.500ms="selectedFieldData.validation.max"
+                                        wire:model.live="selectedFieldData.validation.max"
                                     >
 
                                 </div>
@@ -1294,7 +1246,7 @@
                                     <input
                                         type="number"
                                         class="form-control"
-                                        wire:model.live.debounce.500ms="selectedFieldData.validation.min_length"
+                                        wire:model.live="selectedFieldData.validation.min_length"
                                     >
 
                                 </div>
@@ -1311,7 +1263,7 @@
                                     <input
                                         type="number"
                                         class="form-control"
-                                        wire:model.live.debounce.500ms="selectedFieldData.validation.max_length"
+                                        wire:model.live="selectedFieldData.validation.max_length"
                                     >
 
                                 </div>
@@ -1346,7 +1298,7 @@
                                     <input
                                         type="text"
                                         class="form-control font-monospace"
-                                        wire:model.live.debounce.500ms="selectedFieldData.validation.regex"
+                                        wire:model.live="selectedFieldData.validation.regex"
                                         placeholder="/^[0-9+\-\s()]+$/"
                                     >
 
@@ -1378,7 +1330,7 @@
                                     <input
                                         type="checkbox"
                                         class="form-check-input"
-                                        wire:model.live.debounce.500ms="selectedFieldData.validation.url"
+                                        wire:model.live="selectedFieldData.validation.url"
                                         id="selected-field-url"
                                     >
 
@@ -1405,7 +1357,7 @@
                                 <input
                                     type="text"
                                     class="form-control font-monospace"
-                                    wire:model.live.debounce.500ms="selectedFieldData.validation.regex"
+                                    wire:model.live="selectedFieldData.validation.regex"
                                     placeholder="/^[A-Za-z ]+$/"
                                 >
 
@@ -1439,7 +1391,7 @@
                                 <input
                                     type="text"
                                     class="form-control"
-                                    wire:model.live.debounce.500ms="selectedFieldData.validation.file_types"
+                                    wire:model.live="selectedFieldData.validation.file_types"
                                     placeholder="pdf,doc,docx,jpg,png"
                                 >
 
@@ -1459,7 +1411,7 @@
                                 <input
                                     type="number"
                                     class="form-control"
-                                    wire:model.live.debounce.500ms="selectedFieldData.validation.file_size"
+                                    wire:model.live="selectedFieldData.validation.file_size"
                                     placeholder="10240"
                                 >
 
@@ -1523,27 +1475,7 @@
             @endif
 
 
-            <div class="mt-3 d-flex flex-wrap gap-2 align-items-center">
-
-                <button
-                    type="button"
-                    class="btn btn-outline-secondary"
-                    wire:click="undo"
-                    @disabled(count($undoStack) <= 1)
-                    title="Undo last change"
-                >
-                    ↶ Undo
-                </button>
-
-                <button
-                    type="button"
-                    class="btn btn-outline-secondary"
-                    wire:click="redo"
-                    @disabled(empty($redoStack))
-                    title="Redo last change"
-                >
-                    ↷ Redo
-                </button>
+            <div class="mt-3 d-flex gap-2">
 
                 <button
                     type="button"
@@ -1580,13 +1512,6 @@
                     </button>
                @endif
 
-            </div>
-
-            <div class="mt-2 small text-muted">
-                Autosave:
-                <span class="fw-semibold">
-                    {{ $autosaveStatus }}
-                </span>
             </div>
 
 
@@ -1674,43 +1599,6 @@
 
 
         /*
-         * Debounced autosave
-         *
-         * Livewire updates the builder state first. After the DOM morph,
-         * wait one second before persisting the current valid schema.
-         * Explicit Save Form remains responsible for creating versions.
-         */
-
-        let autosaveTimer = null;
-        let autosaveInProgress = false;
-
-        function scheduleAutosave() {
-
-            if (autosaveInProgress) {
-                return;
-            }
-
-            clearTimeout(autosaveTimer);
-
-            autosaveTimer = setTimeout(async () => {
-
-                if (autosaveInProgress) {
-                    return;
-                }
-
-                autosaveInProgress = true;
-
-                try {
-                    await $wire.autosave();
-                } finally {
-                    autosaveInProgress = false;
-                }
-
-            }, 1000);
-        }
-
-
-        /*
          * Initial load
          */
 
@@ -1728,8 +1616,6 @@
                 setTimeout(() => {
 
                     initSortable();
-
-                    scheduleAutosave();
 
                 }, 0);
 

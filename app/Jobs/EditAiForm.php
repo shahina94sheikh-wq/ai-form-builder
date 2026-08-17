@@ -111,6 +111,28 @@ class EditAiForm implements ShouldQueue
 
     /*
     |--------------------------------------------------------------------------
+    | Preserve existing conditional logic
+    |--------------------------------------------------------------------------
+    |
+    | Conditional logic is part of the form schema. If an AI response ever
+    | omits the top-level logic property, keep the existing rules instead of
+    | allowing an unrelated AI edit to delete them.
+    |
+    | If the user explicitly edits conditional logic, the AI response already
+    | contains the requested logic and this fallback does not overwrite it.
+    |--------------------------------------------------------------------------
+    */
+
+    if (
+        !array_key_exists('logic', $newSchema) &&
+        array_key_exists('logic', $currentSchema)
+    ) {
+        $newSchema['logic'] = $currentSchema['logic'];
+    }
+
+
+    /*
+    |--------------------------------------------------------------------------
     | Check whether AI actually changed the schema
     |--------------------------------------------------------------------------
     */

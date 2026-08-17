@@ -36,42 +36,6 @@ class FormBuilder extends Component
 
     /*
     |--------------------------------------------------------------------------
-    | Undo / Redo History
-    |--------------------------------------------------------------------------
-    */
-
-    public array $undoStack = [];
-
-    public array $redoStack = [];
-
-    protected int $maxHistory = 30;
-
-    /*
-    |--------------------------------------------------------------------------
-    | Autosave
-    |--------------------------------------------------------------------------
-    */
-
-    public string $autosaveStatus = 'Saved';
-
-    /*
-    |--------------------------------------------------------------------------
-    | Conditional Logic Builder State
-    |--------------------------------------------------------------------------
-    */
-
-    public ?string $logicSourceField = null;
-
-    public string $logicOperator = 'equals';
-
-    public string $logicValue = '';
-
-    public string $logicAction = 'show';
-
-    public ?string $logicTargetField = null;
-
-    /*
-    |--------------------------------------------------------------------------
     | Mount
     |--------------------------------------------------------------------------
     */
@@ -80,7 +44,9 @@ class FormBuilder extends Component
     {
         $this->form = $form;
 
-        $this->schema = $form->schema ?? [];
+        $this->schema = $this->normalizeSchema(
+            $form->schema ?? []
+        );
 
         /*
         |--------------------------------------------------------------------------
@@ -246,8 +212,6 @@ class FormBuilder extends Component
         unset($section);
 
         $this->syncJson();
-
-        $this->initializeHistory();
     }
 
     /*
@@ -328,8 +292,6 @@ class FormBuilder extends Component
 
         $this->schema['sections'][$sectionIndex]['fields'][] =
             $field;
-
-        $this->pushHistory();
 
         /*
         |--------------------------------------------------------------------------
@@ -426,8 +388,6 @@ class FormBuilder extends Component
                         [$fieldIndex] =
                         $this->selectedFieldData;
 
-                    $this->pushHistory();
-
                     $this->syncJson();
 
                     return;
@@ -482,8 +442,6 @@ class FormBuilder extends Component
                 $this->selectedFieldData =
                     $copy;
 
-                $this->pushHistory();
-
                 $this->syncJson();
 
                 return;
@@ -497,270 +455,50 @@ class FormBuilder extends Component
     |--------------------------------------------------------------------------
     */
 
-       /*
-|--------------------------------------------------------------------------
-| Delete
-|--------------------------------------------------------------------------
-*/
-
-public function deleteField(string $fieldId): void
-{
-    foreach (
-        $this->schema['sections']
-        as $sectionIndex => $section
-    ) {
-
+    public function deleteField(string $fieldId): void
+    {
         foreach (
-            $section['fields']
-            as $fieldIndex => $field
+            $this->schema['sections']
+            as $sectionIndex => $section
         ) {
 
-            if (($field['id'] ?? null) !== $fieldId) {
-                continue;
-            }
+            foreach (
+                $section['fields']
+                as $fieldIndex => $field
+            ) {
 
-            /*
-            |--------------------------------------------------------------------------
-            | Remove field from section
-            |--------------------------------------------------------------------------
-            */
+                if ($field['id'] !== $fieldId) {
+                    continue;
+                }
 
-            unset(
-                $this->schema['sections']
-                    [$sectionIndex]
-                    ['fields']
-                    [$fieldIndex]
-            );
-
-            $this->schema['sections']
-                [$sectionIndex]
-                ['fields'] =
-                array_values(
+                unset(
                     $this->schema['sections']
                         [$sectionIndex]
                         ['fields']
+                        [$fieldIndex]
                 );
 
-            /*
-            |--------------------------------------------------------------------------
-            | Remove conditional logic related to deleted field
-            |--------------------------------------------------------------------------
-            |
-            | A deleted field can be referenced in two places:
-            |
-            | 1. when.field  -> source field
-            | 2. target      -> target field
-            |
-            | Remove the entire rule if the deleted field appears
-            | in either location.
-            |
-            */
-
-            if (
-                isset($this->schema['logic']) &&
-                is_array($this->schema['logic'])
-            ) {
-
-                $this->schema['logic'] =
+                $this->schema['sections']
+                    [$sectionIndex]
+                    ['fields'] =
                     array_values(
-                        array_filter(
-                            $this->schema['logic'],
-                            function ($rule) use ($fieldId) {
-
-                                $sourceField =
-                                    $rule['when']['field']
-                                    ?? null;
-
-                                $targetField =
-                                    $rule['target']
-                                    ?? null;
-
-                                /*
-                                |--------------------------------------------------------------------------
-                                | Keep rule only when deleted field is
-                                | NOT source and NOT target
-                                |--------------------------------------------------------------------------
-                                */
-
-                                return
-                                    $sourceField !== $fieldId &&
-                                    $targetField !== $fieldId;
-                            }
-                        )
+                        $this->schema['sections']
+                            [$sectionIndex]
+                            ['fields']
                     );
-            }
 
-            /*
-            |--------------------------------------------------------------------------
-            | Clear selected field
-            |--------------------------------------------------------------------------
-            */
+                if ($this->selectedField === $fieldId) {
 
-            if ($this->selectedField === $fieldId) {
+                    $this->selectedField = null;
 
-                $this->selectedField = null;
-
-                $this->selectedFieldData = [];
-            }
-
-            /*
-            |--------------------------------------------------------------------------
-            | Record change for Undo / Redo
-            |--------------------------------------------------------------------------
-            */
-
-            $this->pushHistory();
-
-            /*
-            |--------------------------------------------------------------------------
-            | Sync JSON
-            |--------------------------------------------------------------------------
-            */
-
-            $this->syncJson();
-
-            return;
-        }
-    }
-}
-
-    /*
-    |--------------------------------------------------------------------------
-    | Sections
-    |--------------------------------------------------------------------------
-    */
-
-    public function addSection(string $title = 'New Section'): void
-    {
-        $title = trim($title) ?: 'New Section';
-
-        $this->schema['sections'][] = [
-            'id' => 'section_' . Str::random(8),
-            'title' => $title,
-            'fields' => [],
-        ];
-
-        $this->pushHistory();
-        $this->syncJson();
-    }
-
-    public function updateSectionTitle(int $sectionIndex, string $title): void
-    {
-        if (!isset($this->schema['sections'][$sectionIndex])) {
-            return;
-        }
-
-        $title = trim($title);
-
-        if ($title === '') {
-            $title = 'Untitled Section';
-        }
-
-        if (($this->schema['sections'][$sectionIndex]['title'] ?? '') === $title) {
-            return;
-        }
-
-        $this->schema['sections'][$sectionIndex]['title'] = $title;
-
-        $this->pushHistory();
-        $this->syncJson();
-    }
-
-    public function deleteSection(int $sectionIndex): void
-    {
-        if (!isset($this->schema['sections'][$sectionIndex])) {
-            return;
-        }
-
-        if (count($this->schema['sections']) <= 1) {
-            $this->addError('section', 'A form must contain at least one section.');
-            return;
-        }
-
-        $section = $this->schema['sections'][$sectionIndex];
-        $fieldReferences = [];
-
-        foreach ($section['fields'] ?? [] as $field) {
-            foreach (['id', 'key'] as $referenceKey) {
-                if (isset($field[$referenceKey]) && is_string($field[$referenceKey])) {
-                    $fieldReferences[] = $field[$referenceKey];
+                    $this->selectedFieldData = [];
                 }
+
+                $this->syncJson();
+
+                return;
             }
         }
-
-        $fieldReferences = array_values(array_unique($fieldReferences));
-
-        unset($this->schema['sections'][$sectionIndex]);
-        $this->schema['sections'] = array_values($this->schema['sections']);
-
-        if ($fieldReferences !== [] && !empty($this->schema['logic'])) {
-            $this->schema['logic'] = array_values(array_filter(
-                $this->schema['logic'],
-                function ($rule) use ($fieldReferences) {
-                    $source = $rule['when']['field'] ?? null;
-                    $target = $rule['target'] ?? null;
-
-                    return !in_array($source, $fieldReferences, true)
-                        && !in_array($target, $fieldReferences, true);
-                }
-            ));
-        }
-
-        $this->selectedField = null;
-        $this->selectedFieldData = [];
-
-        $this->pushHistory();
-        $this->syncJson();
-    }
-
-    public function moveFieldToSection(string $fieldId, string $targetSectionId): void
-    {
-        $targetIndex = null;
-
-        foreach ($this->schema['sections'] as $index => $section) {
-            if (($section['id'] ?? null) === $targetSectionId) {
-                $targetIndex = $index;
-                break;
-            }
-        }
-
-        if ($targetIndex === null) {
-            return;
-        }
-
-        $movingField = null;
-        $sourceIndex = null;
-        $fieldIndex = null;
-
-        foreach ($this->schema['sections'] as $sectionIndex => $section) {
-            foreach ($section['fields'] ?? [] as $index => $field) {
-                if (($field['id'] ?? null) === $fieldId) {
-                    $movingField = $field;
-                    $sourceIndex = $sectionIndex;
-                    $fieldIndex = $index;
-                    break 2;
-                }
-            }
-        }
-
-        if ($movingField === null || $sourceIndex === null || $fieldIndex === null) {
-            return;
-        }
-
-        if ($sourceIndex === $targetIndex) {
-            return;
-        }
-
-        array_splice(
-            $this->schema['sections'][$sourceIndex]['fields'],
-            $fieldIndex,
-            1
-        );
-
-        $this->schema['sections'][$targetIndex]['fields'][] = $movingField;
-
-        $this->pushHistory();
-        $this->syncJson();
     }
 
     /*
@@ -812,167 +550,7 @@ public function deleteField(string $fieldId): void
             }
         }
 
-        $this->pushHistory();
-
         $this->syncJson();
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Undo / Redo History
-    |--------------------------------------------------------------------------
-    */
-
-    protected function initializeHistory(): void
-    {
-        $this->undoStack = [
-            $this->getSchemaSnapshot(),
-        ];
-
-        $this->redoStack = [];
-    }
-
-    protected function getSchemaSnapshot(): array
-    {
-        return json_decode(
-            json_encode($this->schema),
-            true
-        ) ?? [];
-    }
-
-    protected function pushHistory(): void
-    {
-        $snapshot = $this->getSchemaSnapshot();
-
-        $lastSnapshot =
-            !empty($this->undoStack)
-                ? end($this->undoStack)
-                : null;
-
-        if (
-            is_array($lastSnapshot) &&
-            json_encode($lastSnapshot) ===
-            json_encode($snapshot)
-        ) {
-            return;
-        }
-
-        $this->undoStack[] = $snapshot;
-
-        if (
-            count($this->undoStack) >
-            $this->maxHistory
-        ) {
-            array_shift($this->undoStack);
-        }
-
-        $this->redoStack = [];
-    }
-
-    public function undo(): void
-    {
-        if (count($this->undoStack) <= 1) {
-            return;
-        }
-
-        $current = array_pop($this->undoStack);
-
-        $this->redoStack[] = $current;
-
-        $previous = end($this->undoStack);
-
-        if (!is_array($previous)) {
-            return;
-        }
-
-        $this->schema =
-            json_decode(
-                json_encode($previous),
-                true
-            ) ?? [];
-
-        $this->selectedField = null;
-        $this->selectedFieldData = [];
-
-        $this->syncJson();
-
-        $this->autosave();
-    }
-
-    public function redo(): void
-    {
-        if (empty($this->redoStack)) {
-            return;
-        }
-
-        $next = array_pop($this->redoStack);
-
-        $this->undoStack[] =
-            $this->getSchemaSnapshot();
-
-        $this->schema =
-            json_decode(
-                json_encode($next),
-                true
-            ) ?? [];
-
-        $this->selectedField = null;
-        $this->selectedFieldData = [];
-
-        $this->syncJson();
-
-        $this->autosave();
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Autosave
-    |--------------------------------------------------------------------------
-    |
-    | Autosave updates the current form schema without creating a version.
-    | Explicit "Save Form" remains the version checkpoint.
-    |
-    */
-
-    public function autosave(): void
-    {
-        $currentSchema =
-            $this->form->schema ?? [];
-
-        $schemaChanged =
-            json_encode(
-                $currentSchema,
-                JSON_UNESCAPED_SLASHES
-            ) !==
-            json_encode(
-                $this->schema,
-                JSON_UNESCAPED_SLASHES
-            );
-
-        if (!$schemaChanged) {
-            $this->autosaveStatus = 'Saved';
-
-            return;
-        }
-
-        $validationErrors =
-            $this->validateSchema(
-                $this->schema
-            );
-
-        if (!empty($validationErrors)) {
-            $this->autosaveStatus = 'Not saved';
-
-            return;
-        }
-
-        $this->autosaveStatus = 'Saving...';
-
-        $this->form->update([
-            'schema' => $this->schema,
-        ]);
-
-        $this->autosaveStatus = 'Saved';
     }
 
     /*
@@ -988,6 +566,86 @@ public function deleteField(string $fieldId): void
             JSON_PRETTY_PRINT |
             JSON_UNESCAPED_SLASHES
         );
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Normalize Field Type
+    |--------------------------------------------------------------------------
+    |
+    | Convert legacy/imported field type aliases to the canonical
+    | field types supported by the builder.
+    |
+    */
+
+    protected function normalizeFieldType(?string $type): string
+    {
+        $type = strtolower(trim($type ?? ''));
+
+        return match ($type) {
+            // Dropdown aliases
+            'dropdown',
+            'drop-down',
+            'choice',
+            'choices',
+            'select' => 'select',
+
+            // Radio aliases
+            'radio',
+            'radio button',
+            'single choice' => 'radio',
+
+            // Checkbox aliases
+            'checkbox',
+            'checkboxes',
+            'multiple choice' => 'checkbox',
+
+            // Text aliases
+            'textbox',
+            'text box',
+            'text input',
+            'input',
+            'text' => 'text',
+
+            // Textarea aliases
+            'textarea',
+            'text area',
+            'long text' => 'textarea',
+
+            // Email aliases
+            'email',
+            'e-mail' => 'email',
+
+            // Number aliases
+            'number',
+            'numeric',
+            'integer' => 'number',
+
+            // Phone aliases
+            'phone',
+            'telephone',
+            'mobile' => 'phone',
+
+            // Date
+            'date' => 'date',
+
+            // File
+            'file',
+            'upload',
+            'file upload' => 'file',
+
+            // Heading
+            'heading',
+            'section heading',
+            'title' => 'heading',
+
+            // Rating
+            'rating',
+            'stars',
+            'star rating' => 'rating',
+
+            default => $type ?: 'text',
+        };
     }
 
     /*
@@ -1068,9 +726,9 @@ public function deleteField(string $fieldId): void
                         $field['id']
                         ?? 'field_' . Str::random(10);
 
-                    $field['type'] =
-                        $field['type']
-                        ?? 'text';
+                    $field['type'] = $this->normalizeFieldType(
+                        $field['type'] ?? 'text'
+                    );
 
                     $field['label'] =
                         $field['label']
@@ -1547,146 +1205,6 @@ public function deleteField(string $fieldId): void
 
         /*
         |--------------------------------------------------------------------------
-        | Conditional Logic validation
-        |--------------------------------------------------------------------------
-        */
-
-        if (
-            isset($schema['logic']) &&
-            !is_array($schema['logic'])
-        ) {
-            $errors[] = 'Schema logic must be an array.';
-        }
-
-        $fieldKeys = [];
-
-        foreach ($schema['sections'] as $section) {
-            foreach ($section['fields'] ?? [] as $field) {
-                if (
-                    isset($field['id']) &&
-                    is_string($field['id']) &&
-                    trim($field['id']) !== ''
-                ) {
-                    $fieldKeys[$field['id']] = true;
-                }
-
-                if (
-                    isset($field['key']) &&
-                    is_string($field['key']) &&
-                    trim($field['key']) !== ''
-                ) {
-                    $fieldKeys[$field['key']] = true;
-                }
-            }
-        }
-
-        $allowedLogicOperators = [
-            'equals',
-            'not_equals',
-            'contains',
-            'not_contains',
-            'greater_than',
-            'less_than',
-            'greater_or_equal',
-            'less_or_equal',
-        ];
-
-        $allowedLogicActions = [
-            'show',
-            'hide',
-        ];
-
-        foreach ($schema['logic'] ?? [] as $logicIndex => $rule) {
-
-            if (!is_array($rule)) {
-                $errors[] =
-                    "Logic rule {$logicIndex} must be an object.";
-
-                continue;
-            }
-
-            $when = $rule['when'] ?? null;
-
-            if (!is_array($when)) {
-                $errors[] =
-                    "Logic rule {$logicIndex} must contain a when object.";
-
-                continue;
-            }
-
-            $source =
-                $when['field']
-                ?? null;
-
-            if (
-                !is_string($source) ||
-                !isset($fieldKeys[$source])
-            ) {
-                $errors[] =
-                    "Logic rule {$logicIndex} references an invalid source field.";
-            }
-
-            $operator =
-                $when['operator']
-                ?? null;
-
-            if (
-                !is_string($operator) ||
-                !in_array(
-                    $operator,
-                    $allowedLogicOperators,
-                    true
-                )
-            ) {
-                $errors[] =
-                    "Logic rule {$logicIndex} has an unsupported operator.";
-            }
-
-            if (!array_key_exists('value', $when)) {
-                $errors[] =
-                    "Logic rule {$logicIndex} must contain a comparison value.";
-            }
-
-            $action =
-                $rule['action']
-                ?? null;
-
-            if (
-                !is_string($action) ||
-                !in_array(
-                    $action,
-                    $allowedLogicActions,
-                    true
-                )
-            ) {
-                $errors[] =
-                    "Logic rule {$logicIndex} has an unsupported action.";
-            }
-
-            $target =
-                $rule['target']
-                ?? null;
-
-            if (
-                !is_string($target) ||
-                !isset($fieldKeys[$target])
-            ) {
-                $errors[] =
-                    "Logic rule {$logicIndex} references an invalid target field.";
-            }
-
-            if (
-                is_string($source) &&
-                is_string($target) &&
-                $source === $target
-            ) {
-                $errors[] =
-                    "Logic rule {$logicIndex} cannot target its source field.";
-            }
-        }
-
-        /*
-        |--------------------------------------------------------------------------
         | Duplicate field keys
         |--------------------------------------------------------------------------
         */
@@ -1807,8 +1325,6 @@ public function deleteField(string $fieldId): void
         */
 
         $this->schema = $decoded;
-
-        $this->pushHistory();
 
         /*
         |--------------------------------------------------------------------------
@@ -1994,8 +1510,6 @@ public function deleteField(string $fieldId): void
 
         $this->syncJson();
 
-        $this->initializeHistory();
-
         /*
         |--------------------------------------------------------------------------
         | Clear errors
@@ -2046,178 +1560,15 @@ public function deleteField(string $fieldId): void
     {
         $this->form->refresh();
 
-        $this->schema =
-            $this->form->schema ?? [];
+        $this->schema = $this->normalizeSchema(
+            $this->form->schema ?? []
+        );
 
         $this->syncJson();
 
         $this->selectedField = null;
 
         $this->selectedFieldData = [];
-
-        $this->initializeHistory();
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Conditional Logic
-    |--------------------------------------------------------------------------
-    */
-
-    public function addLogicRule(): void
-    {
-        $this->resetErrorBag('schemaJson');
-
-        if (
-            !$this->logicSourceField ||
-            !$this->logicTargetField
-        ) {
-            $this->addError(
-                'logic',
-                'Please select both the source and target fields.'
-            );
-
-            return;
-        }
-
-        if (
-            $this->logicSourceField ===
-            $this->logicTargetField
-        ) {
-            $this->addError(
-                'logic',
-                'The source and target fields must be different.'
-            );
-
-            return;
-        }
-
-        $allowedOperators = [
-            'equals',
-            'not_equals',
-            'contains',
-            'not_contains',
-            'greater_than',
-            'less_than',
-            'greater_or_equal',
-            'less_or_equal',
-        ];
-
-        $allowedActions = [
-            'show',
-            'hide',
-        ];
-
-        if (
-            !in_array(
-                $this->logicOperator,
-                $allowedOperators,
-                true
-            )
-        ) {
-            $this->addError(
-                'logic',
-                'Invalid conditional logic operator.'
-            );
-
-            return;
-        }
-
-        if (
-            !in_array(
-                $this->logicAction,
-                $allowedActions,
-                true
-            )
-        ) {
-            $this->addError(
-                'logic',
-                'Invalid conditional logic action.'
-            );
-
-            return;
-        }
-
-        if (
-            trim($this->logicValue) === ''
-        ) {
-            $this->addError(
-                'logic',
-                'Please provide a comparison value.'
-            );
-
-            return;
-        }
-
-        $this->schema['logic'] =
-            is_array($this->schema['logic'] ?? null)
-                ? $this->schema['logic']
-                : [];
-
-        $this->schema['logic'][] = [
-            'when' => [
-                'field' => $this->logicSourceField,
-                'operator' => $this->logicOperator,
-                'value' => $this->logicValue,
-            ],
-            'action' => $this->logicAction,
-            'target' => $this->logicTargetField,
-        ];
-
-        $validationErrors =
-            $this->validateSchema($this->schema);
-
-        if (!empty($validationErrors)) {
-            array_pop($this->schema['logic']);
-
-            $this->addError(
-                'logic',
-                implode(' ', $validationErrors)
-            );
-
-            return;
-        }
-
-        $this->pushHistory();
-
-        $this->resetLogicBuilder();
-
-        $this->syncJson();
-    }
-
-    public function removeLogicRule(int $index): void
-    {
-        if (
-            !isset(
-                $this->schema['logic'][$index]
-            )
-        ) {
-            return;
-        }
-
-        unset(
-            $this->schema['logic'][$index]
-        );
-
-        $this->schema['logic'] =
-            array_values(
-                $this->schema['logic']
-            );
-
-        $this->pushHistory();
-
-        $this->syncJson();
-    }
-
-    public function resetLogicBuilder(): void
-    {
-        $this->logicSourceField = null;
-        $this->logicOperator = 'equals';
-        $this->logicValue = '';
-        $this->logicAction = 'show';
-        $this->logicTargetField = null;
-
-        $this->resetErrorBag('logic');
     }
 
     /*
@@ -2522,8 +1873,6 @@ public function deleteField(string $fieldId): void
             $decoded;
 
         $this->syncJson();
-
-        $this->initializeHistory();
 
         /*
         |--------------------------------------------------------------------------

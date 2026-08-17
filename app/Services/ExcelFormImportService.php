@@ -2,237 +2,116 @@
 
 namespace App\Services;
 
+use Illuminate\Support\Str;
 use PhpOffice\PhpSpreadsheet\IOFactory;
 
 class ExcelFormImportService
 {
     /**
-     * Parse an Excel file into a normalized import structure.
+     * Parse an Excel file into a normalized form structure.
      *
-     * Supported layouts:
+     * Supported Excel structure:
      *
-     * 1. Structured layout:
+     * Section | Label | Type | Required | Options
      *
-     *    Section | Label | Type | Required | Options
+     * Example:
      *
-     * 2. Plain header-row layout:
-     *
-     *    Name | Email | Phone | Age | Date of Birth
-     *
-     *    John | test@example.com | 9999999999 | 30 | 1996-01-01
+     * Personal Information | Full Name | text | yes |
+     * Personal Information | Email | email | yes |
+     * Personal Information | Gender | dropdown | no | Male|Female|Other
      */
     public function parse(string $path): array
     {
-        /*
-        |--------------------------------------------------------------------------
-        | Load spreadsheet
-        |--------------------------------------------------------------------------
-        |
-        | readDataOnly() prevents PhpSpreadsheet from loading formula
-        | calculations/styles unnecessarily.
-        |
-        */
-
-        $reader = IOFactory::createReaderForFile($path);
-
-        $reader->setReadDataOnly(true);
-
-        $spreadsheet = $reader->load($path);
+        $spreadsheet = IOFactory::load($path);
 
         $allSections = [];
-
         $errors = [];
 
-        /*
-        |--------------------------------------------------------------------------
-        | Process every worksheet
-        |--------------------------------------------------------------------------
-        */
+        foreach ($spreadsheet->getWorksheetIterator() as $worksheet) {
 
-        foreach (
-            $spreadsheet->getWorksheetIterator()
-            as $worksheet
-        ) {
+            $rows = $worksheet->toArray(
+                null,
+                true,
+                true,
+                false
+            );
 
-            try {
+            /*
+            |--------------------------------------------------------------------------
+            | Skip empty worksheet
+            |--------------------------------------------------------------------------
+            */
+            if (empty($rows)) {
+                continue;
+            }
 
-                $sheetName = $worksheet->getTitle();
+            /*
+            |--------------------------------------------------------------------------
+            | Find header row
+            |--------------------------------------------------------------------------
+            */
+            $header = $this->findHeaderRow($rows);
 
-                $rows = $worksheet->toArray(
-                    null,
-                    true,
-                    true,
-                    false
-                );
-
-                /*
-                |--------------------------------------------------------------------------
-                | Skip empty sheets
-                |--------------------------------------------------------------------------
-                */
-
-                if (empty($rows)) {
-                    continue;
-                }
-
-                /*
-                |--------------------------------------------------------------------------
-                | First try structured layout
-                |--------------------------------------------------------------------------
-                */
-
-                $header = $this->findHeaderRow($rows);
-
-                if ($header) {
-
-                    $sections = $this->parseRows(
-                        $rows,
-                        $header['row'],
-                        $header['columns']
-                    );
-
-                } else {
-
-                    /*
-                    |--------------------------------------------------------------------------
-                    | Try plain header-row layout
-                    |--------------------------------------------------------------------------
-                    */
-
-                    $plainHeader = $this->findPlainHeaderRow(
-                        $rows
-                    );
-
-                    if ($plainHeader) {
-
-                        $sections =
-                            $this->parsePlainHeaderRows(
-                                $rows,
-                                $plainHeader['row'],
-                                $plainHeader['columns']
-                            );
-
-                    } else {
-
-                        $errors[] = [
-                            'sheet' =>
-                                $sheetName,
-
-                            'message' =>
-                                'Could not detect a supported Excel layout. '
-                                . 'Use either "Section | Label | Type | Required | Options" '
-                                . 'or a plain header row containing field names.',
-                        ];
-
-                        continue;
-                    }
-                }
-
-                /*
-                |--------------------------------------------------------------------------
-                | Check parsed result
-                |--------------------------------------------------------------------------
-                */
-
-                if (empty($sections)) {
-
-                    $errors[] = [
-                        'sheet' =>
-                            $sheetName,
-
-                        'message' =>
-                            'The worksheet was readable, but no form fields '
-                            . 'could be detected.',
-                    ];
-
-                    continue;
-                }
-
-                /*
-                |--------------------------------------------------------------------------
-                | Add parsed sections
-                |--------------------------------------------------------------------------
-                */
-
-                foreach ($sections as $section) {
-
-                    $allSections[] = $section;
-                }
-
-            } catch (\Throwable $e) {
-
-                /*
-                |--------------------------------------------------------------------------
-                | Don't allow one bad worksheet to break the whole workbook
-                |--------------------------------------------------------------------------
-                */
+            if (!$header) {
 
                 $errors[] = [
-                    'sheet' =>
-                        $worksheet->getTitle(),
-
+                    'sheet' => $worksheet->getTitle(),
                     'message' =>
-                        'Could not parse this worksheet: '
-                        . $e->getMessage(),
+                        'Could not detect a supported header row.',
                 ];
+
+                continue;
+            }
+
+            /*
+            |--------------------------------------------------------------------------
+            | Parse rows
+            |--------------------------------------------------------------------------
+            */
+            $sections = $this->parseRows(
+                $rows,
+                $header['row'],
+                $header['columns']
+            );
+
+            /*
+            |--------------------------------------------------------------------------
+            | Add parsed sections
+            |--------------------------------------------------------------------------
+            */
+            foreach ($sections as $section) {
+                $allSections[] = $section;
             }
         }
 
         /*
         |--------------------------------------------------------------------------
-        | Free spreadsheet memory
+        | Return normalized import structure
         |--------------------------------------------------------------------------
         */
-
-        $spreadsheet->disconnectWorksheets();
-
-        unset($spreadsheet);
-
-        /*
-        |--------------------------------------------------------------------------
-        | Return normalized structure
-        |--------------------------------------------------------------------------
-        */
-
         return [
-            'format' =>
-                'xlsx',
+            'format' => 'xlsx',
 
-            'sections' =>
-                $allSections,
+            'sections' => $allSections,
 
-            'errors' =>
-                $errors,
+            'errors' => $errors,
         ];
     }
 
 
-    /*
-    |--------------------------------------------------------------------------
-    | STRUCTURED EXCEL LAYOUT
-    |--------------------------------------------------------------------------
-    */
-
     /**
-     * Detect structured header row.
+     * Detect the header row.
      *
-     * Example:
-     *
-     * Section | Label | Type | Required | Options
+     * We only require the Label column.
+     * Other columns are optional.
      */
-    protected function findHeaderRow(
-        array $rows
-    ): ?array {
-
-        foreach (
-            $rows as $rowIndex => $row
-        ) {
+    protected function findHeaderRow(array $rows): ?array
+    {
+        foreach ($rows as $rowIndex => $row) {
 
             $columns = [];
 
-            foreach (
-                $row as $columnIndex => $value
-            ) {
+            foreach ($row as $columnIndex => $value) {
 
                 if ($value === null) {
                     continue;
@@ -246,12 +125,16 @@ class ExcelFormImportService
                     continue;
                 }
 
+                /*
+                |--------------------------------------------------------------------------
+                | Normalize Excel header names
+                |--------------------------------------------------------------------------
+                */
                 $normalized = match ($header) {
 
                     'section',
                     'sections',
-                    'group',
-                    'category' =>
+                    'section name' =>
                         'section',
 
                     'label',
@@ -259,7 +142,6 @@ class ExcelFormImportService
                     'field',
                     'question',
                     'question label',
-                    'name',
                     'field name' =>
                         'label',
 
@@ -271,57 +153,36 @@ class ExcelFormImportService
                     'required',
                     'is required',
                     'mandatory',
-                    'is mandatory' =>
+                    'required field' =>
                         'required',
 
                     'options',
                     'choices',
                     'values',
                     'option values',
-                    'choice values' =>
+                    'dropdown options',
+                    'select options' =>
                         'options',
 
-                    default =>
-                        null,
+                    default => null,
                 };
 
                 if ($normalized) {
-
-                    /*
-                    |--------------------------------------------------------------------------
-                    | Don't overwrite the first occurrence
-                    |--------------------------------------------------------------------------
-                    */
-
-                    if (
-                        !isset(
-                            $columns[$normalized]
-                        )
-                    ) {
-                        $columns[$normalized] =
-                            $columnIndex;
-                    }
+                    $columns[$normalized] = $columnIndex;
                 }
             }
 
             /*
             |--------------------------------------------------------------------------
-            | Label column is mandatory for structured layout
+            | Label column is mandatory
             |--------------------------------------------------------------------------
             */
-
-            if (
-                isset(
-                    $columns['label']
-                )
-            ) {
+            if (isset($columns['label'])) {
 
                 return [
-                    'row' =>
-                        $rowIndex,
+                    'row' => $rowIndex,
 
-                    'columns' =>
-                        $columns,
+                    'columns' => $columns,
                 ];
             }
         }
@@ -331,7 +192,7 @@ class ExcelFormImportService
 
 
     /**
-     * Parse structured rows.
+     * Convert spreadsheet rows into form sections.
      */
     protected function parseRows(
         array $rows,
@@ -343,6 +204,11 @@ class ExcelFormImportService
 
         $sectionIndexes = [];
 
+        /*
+        |--------------------------------------------------------------------------
+        | Process every row after header
+        |--------------------------------------------------------------------------
+        */
         for (
             $rowIndex = $headerRow + 1;
             $rowIndex < count($rows);
@@ -353,10 +219,9 @@ class ExcelFormImportService
 
             /*
             |--------------------------------------------------------------------------
-            | Read label
+            | Read field label
             |--------------------------------------------------------------------------
             */
-
             $label = $this->getCell(
                 $row,
                 $columns['label'] ?? null
@@ -371,52 +236,47 @@ class ExcelFormImportService
             | Skip empty rows
             |--------------------------------------------------------------------------
             */
-
             if ($label === '') {
                 continue;
             }
 
             /*
             |--------------------------------------------------------------------------
-            | Section
+            | Read section
             |--------------------------------------------------------------------------
             */
+            $sectionTitle = $this->getCell(
+                $row,
+                $columns['section'] ?? null
+            );
 
-            $sectionTitle =
-                $this->getCell(
-                    $row,
-                    $columns['section'] ?? null
-                );
+            $sectionTitle = trim(
+                (string) $sectionTitle
+            );
 
-            $sectionTitle =
-                trim(
-                    (string) $sectionTitle
-                );
-
+            /*
+            |--------------------------------------------------------------------------
+            | Default section
+            |--------------------------------------------------------------------------
+            */
             if ($sectionTitle === '') {
-                $sectionTitle =
-                    'Imported Fields';
+                $sectionTitle = 'Imported Fields';
             }
 
             /*
             |--------------------------------------------------------------------------
-            | Create section
+            | Create section if it doesn't exist
             |--------------------------------------------------------------------------
             */
-
-            if (
-                !isset(
-                    $sectionIndexes[$sectionTitle]
-                )
-            ) {
+            if (!isset($sectionIndexes[$sectionTitle])) {
 
                 $sectionIndexes[$sectionTitle] =
                     count($sections);
 
                 $sections[] = [
                     'id' =>
-                        'section_'
-                        . substr(
+                        'section_' .
+                        substr(
                             md5($sectionTitle),
                             0,
                             10
@@ -425,549 +285,214 @@ class ExcelFormImportService
                     'title' =>
                         $sectionTitle,
 
-                    'fields' =>
-                        [],
+                    'fields' => [],
                 ];
             }
 
             $sectionIndex =
                 $sectionIndexes[$sectionTitle];
 
-            /*
-            |--------------------------------------------------------------------------
-            | Type
-            |--------------------------------------------------------------------------
-            */
-
-            $type =
-                $this->getCell(
-                    $row,
-                    $columns['type'] ?? null
-                );
-
-            $type =
-                $this->normalizeType(
-                    (string) $type,
-                    $label
-                );
 
             /*
             |--------------------------------------------------------------------------
-            | Required
+            | Read field type
             |--------------------------------------------------------------------------
             */
+            $type = $this->getCell(
+                $row,
+                $columns['type'] ?? null
+            );
 
-            $required =
-                $this->getCell(
-                    $row,
-                    $columns['required'] ?? null
-                );
+            $type = $this->normalizeType(
+                (string) $type,
+                $label
+            );
+
+
+            /*
+            |--------------------------------------------------------------------------
+            | Read required
+            |--------------------------------------------------------------------------
+            */
+            $required = $this->getCell(
+                $row,
+                $columns['required'] ?? null
+            );
 
             $required =
                 $this->normalizeBoolean(
                     $required
                 );
 
+
             /*
             |--------------------------------------------------------------------------
-            | Options
+            | Read options
             |--------------------------------------------------------------------------
             */
-
-            $options =
-                $this->getCell(
-                    $row,
-                    $columns['options'] ?? null
-                );
+            $options = $this->getCell(
+                $row,
+                $columns['options'] ?? null
+            );
 
             $options =
                 $this->normalizeOptions(
                     $options
                 );
 
+
             /*
             |--------------------------------------------------------------------------
-            | Field
+            | Make sure option based fields have options
             |--------------------------------------------------------------------------
             */
+            if (
+                in_array(
+                    $type,
+                    [
+                        'select',
+                        'radio',
+                        'checkbox',
+                    ],
+                    true
+                )
+                &&
+                empty($options)
+            ) {
+                $options = [];
+            }
 
-            $field = [
-                'id' =>
-                    'field_'
-                    . substr(
-                        md5(
-                            $sectionTitle
-                            . '|'
-                            . $label
-                            . '|'
-                            . $rowIndex
-                        ),
-                        0,
-                        12
+
+            /*
+            |--------------------------------------------------------------------------
+            | Generate stable field ID
+            |--------------------------------------------------------------------------
+            */
+            $fieldId =
+                'field_' .
+                substr(
+                    md5(
+                        $sectionTitle .
+                        '|' .
+                        $label .
+                        '|' .
+                        $rowIndex
                     ),
+                    0,
+                    12
+                );
+
+
+            /*
+            |--------------------------------------------------------------------------
+            | Generate unique field key
+            |--------------------------------------------------------------------------
+            */
+            $fieldKey =
+                Str::snake($label);
+
+            if ($fieldKey === '') {
+                $fieldKey = 'field';
+            }
+
+            $fieldKey .=
+                '_' .
+                substr(
+                    md5(
+                        $sectionTitle .
+                        '|' .
+                        $label .
+                        '|' .
+                        $rowIndex
+                    ),
+                    0,
+                    5
+                );
+
+
+            /*
+            |--------------------------------------------------------------------------
+            | Create normalized field
+            |--------------------------------------------------------------------------
+            |
+            | IMPORTANT:
+            |
+            | This structure matches the structure used by
+            | manually-created builder fields.
+            |
+            */
+            $field = [
+
+                'id' =>
+                    $fieldId,
 
                 'type' =>
                     $type,
 
                 'label' =>
                     $label,
+
+                'key' =>
+                    $fieldKey,
+
+                'placeholder' =>
+                    '',
+
+                'help' =>
+                    '',
+
+                'default' =>
+                    '',
 
                 'required' =>
                     $required,
 
                 'options' =>
                     $options,
+
+                'validation' => [
+
+                    'min' =>
+                        null,
+
+                    'max' =>
+                        null,
+
+                    'min_length' =>
+                        null,
+
+                    'max_length' =>
+                        null,
+
+                    'url' =>
+                        null,
+
+                    'regex' =>
+                        null,
+
+                    'file_types' =>
+                        null,
+
+                    'file_size' =>
+                        null,
+                ],
             ];
+
 
             /*
             |--------------------------------------------------------------------------
-            | Add field
+            | Add field to section
             |--------------------------------------------------------------------------
             */
-
-            $sections[$sectionIndex]['fields'][] =
-                $field;
+            $sections[
+                $sectionIndex
+            ]['fields'][] = $field;
         }
+
 
         return $sections;
     }
 
-
-    /*
-    |--------------------------------------------------------------------------
-    | PLAIN HEADER-ROW LAYOUT
-    |--------------------------------------------------------------------------
-    */
-
-    /**
-     * Detect a simple header-row spreadsheet.
-     *
-     * Example:
-     *
-     * Name | Email | Phone | Age
-     */
-    protected function findPlainHeaderRow(
-        array $rows
-    ): ?array {
-
-        foreach (
-            $rows as $rowIndex => $row
-        ) {
-
-            $columns = [];
-
-            foreach (
-                $row as $columnIndex => $value
-            ) {
-
-                if ($value === null) {
-                    continue;
-                }
-
-                $header =
-                    trim(
-                        (string) $value
-                    );
-
-                if ($header === '') {
-                    continue;
-                }
-
-                /*
-                |--------------------------------------------------------------------------
-                | Ignore obvious metadata/header words
-                |--------------------------------------------------------------------------
-                */
-
-                $normalized =
-                    strtolower(
-                        preg_replace(
-                            '/[^a-z0-9]+/',
-                            '',
-                            $header
-                        )
-                    );
-
-                if (
-                    in_array(
-                        $normalized,
-                        [
-                            'section',
-                            'sections',
-                            'label',
-                            'field',
-                            'fieldlabel',
-                            'type',
-                            'fieldtype',
-                            'required',
-                            'mandatory',
-                            'options',
-                            'choices',
-                            'values',
-                        ],
-                        true
-                    )
-                ) {
-                    /*
-                    |------------------------------------------------------------------
-                    | This is probably the structured layout, which should have
-                    | already been detected by findHeaderRow().
-                    |------------------------------------------------------------------
-                    */
-
-                    continue;
-                }
-
-                /*
-                |--------------------------------------------------------------------------
-                | Treat non-empty cell as a field header
-                |--------------------------------------------------------------------------
-                */
-
-                $columns[$columnIndex] =
-                    $header;
-            }
-
-            /*
-            |--------------------------------------------------------------------------
-            | A plain header row should contain at least 2 fields
-            |--------------------------------------------------------------------------
-            */
-
-            if (
-                count($columns) >= 2
-            ) {
-
-                return [
-                    'row' =>
-                        $rowIndex,
-
-                    'columns' =>
-                        $columns,
-                ];
-            }
-        }
-
-        return null;
-    }
-
-
-    /**
-     * Parse plain header-row spreadsheet.
-     *
-     * Each header becomes a form field.
-     *
-     * Example:
-     *
-     * Name | Email | Phone
-     *
-     * becomes:
-     *
-     * Imported Fields
-     *   - Name
-     *   - Email
-     *   - Phone
-     */
-    protected function parsePlainHeaderRows(
-        array $rows,
-        int $headerRow,
-        array $columns
-    ): array {
-
-        $fields = [];
-
-        foreach (
-            $columns as $columnIndex => $label
-        ) {
-
-            $label =
-                trim(
-                    (string) $label
-                );
-
-            if ($label === '') {
-                continue;
-            }
-
-            /*
-            |--------------------------------------------------------------------------
-            | Infer type from field label
-            |--------------------------------------------------------------------------
-            */
-
-            $type =
-                $this->inferTypeFromLabel(
-                    $label
-                );
-
-            /*
-            |--------------------------------------------------------------------------
-            | Inspect sample values
-            |--------------------------------------------------------------------------
-            |
-            | This is deliberately conservative.
-            | We don't automatically convert arbitrary values to dropdowns,
-            | because doing so could incorrectly change a normal text field.
-            |
-            */
-
-            $sampleValues =
-                $this->getColumnSampleValues(
-                    $rows,
-                    $headerRow,
-                    $columnIndex
-                );
-
-            /*
-            |--------------------------------------------------------------------------
-            | Better numeric detection
-            |--------------------------------------------------------------------------
-            */
-
-            if (
-                $type === 'text'
-                && !empty($sampleValues)
-                && $this->looksNumeric(
-                    $sampleValues
-                )
-            ) {
-
-                $type = 'number';
-            }
-
-            /*
-            |--------------------------------------------------------------------------
-            | Better date detection
-            |--------------------------------------------------------------------------
-            */
-
-            if (
-                $type === 'text'
-                && !empty($sampleValues)
-                && $this->looksLikeDates(
-                    $sampleValues
-                )
-            ) {
-
-                $type = 'date';
-            }
-
-            /*
-            |--------------------------------------------------------------------------
-            | Create field
-            |--------------------------------------------------------------------------
-            */
-
-            $fields[] = [
-
-                'id' =>
-                    'field_'
-                    . substr(
-                        md5(
-                            $label
-                            . '|'
-                            . $columnIndex
-                        ),
-                        0,
-                        12
-                    ),
-
-                'type' =>
-                    $type,
-
-                'label' =>
-                    $label,
-
-                /*
-                |--------------------------------------------------------------------------
-                | Plain header-row imports are optional by default.
-                |--------------------------------------------------------------------------
-                */
-
-                'required' =>
-                    false,
-
-                'options' =>
-                    [],
-            ];
-        }
-
-        if (empty($fields)) {
-            return [];
-        }
-
-        return [
-            [
-                'id' =>
-                    'section_'
-                    . substr(
-                        md5(
-                            'Imported Fields'
-                        ),
-                        0,
-                        10
-                    ),
-
-                'title' =>
-                    'Imported Fields',
-
-                'fields' =>
-                    $fields,
-            ],
-        ];
-    }
-
-
-    /*
-    |--------------------------------------------------------------------------
-    | PLAIN HEADER HELPERS
-    |--------------------------------------------------------------------------
-    */
-
-    /**
-     * Get sample values from a column.
-     */
-    protected function getColumnSampleValues(
-        array $rows,
-        int $headerRow,
-        int $columnIndex
-    ): array {
-
-        $values = [];
-
-        /*
-        |--------------------------------------------------------------------------
-        | Only inspect a reasonable number of rows.
-        |--------------------------------------------------------------------------
-        */
-
-        $maxRows =
-            min(
-                count($rows),
-                $headerRow + 21
-            );
-
-        for (
-            $rowIndex = $headerRow + 1;
-            $rowIndex < $maxRows;
-            $rowIndex++
-        ) {
-
-            $value =
-                $rows[$rowIndex][$columnIndex]
-                ?? null;
-
-            if (
-                $value === null
-                || trim((string) $value) === ''
-            ) {
-                continue;
-            }
-
-            $values[] =
-                trim(
-                    (string) $value
-                );
-        }
-
-        return $values;
-    }
-
-
-    /**
-     * Determine whether sample values are numeric.
-     */
-    protected function looksNumeric(
-        array $values
-    ): bool {
-
-        if (empty($values)) {
-            return false;
-        }
-
-        $numericCount = 0;
-
-        foreach ($values as $value) {
-
-            $clean =
-                str_replace(
-                    [',', ' '],
-                    '',
-                    $value
-                );
-
-            if (
-                is_numeric($clean)
-            ) {
-                $numericCount++;
-            }
-        }
-
-        return
-            $numericCount >=
-            max(
-                1,
-                (int) ceil(
-                    count($values) * 0.8
-                )
-            );
-    }
-
-
-    /**
-     * Determine whether sample values look like dates.
-     */
-    protected function looksLikeDates(
-        array $values
-    ): bool {
-
-        if (empty($values)) {
-            return false;
-        }
-
-        $dateCount = 0;
-
-        foreach ($values as $value) {
-
-            if (
-                is_numeric($value)
-            ) {
-                /*
-                |--------------------------------------------------------------------------
-                | Excel serial dates are numeric, but don't automatically
-                | classify all numeric values as dates.
-                |--------------------------------------------------------------------------
-                */
-
-                continue;
-            }
-
-            $timestamp =
-                strtotime($value);
-
-            if (
-                $timestamp !== false
-            ) {
-                $dateCount++;
-            }
-        }
-
-        return
-            $dateCount >=
-            max(
-                1,
-                (int) ceil(
-                    count($values) * 0.8
-                )
-            );
-    }
-
-
-    /*
-    |--------------------------------------------------------------------------
-    | COMMON HELPERS
-    |--------------------------------------------------------------------------
-    */
 
     /**
      * Safely get a cell.
@@ -986,88 +511,185 @@ class ExcelFormImportService
 
 
     /**
-     * Normalize field type.
+     * Normalize field types.
+     *
+     * IMPORTANT:
+     *
+     * The internal schema uses:
+     *
+     * select
+     * radio
+     * checkbox
+     *
+     * "dropdown" is accepted as an Excel alias,
+     * but it MUST become "select".
      */
     protected function normalizeType(
         string $type,
         string $label
     ): string {
 
-        $type =
-            strtolower(
-                trim($type)
-            );
+        $type = strtolower(
+            trim($type)
+        );
 
-        $type =
-            str_replace(
-                ['-', '_', ' '],
-                '',
-                $type
-            );
+        /*
+        |--------------------------------------------------------------------------
+        | Remove spaces, hyphens and underscores
+        |--------------------------------------------------------------------------
+        */
+        $type = str_replace(
+            [
+                '-',
+                '_',
+                ' ',
+            ],
+            '',
+            $type
+        );
 
+
+        /*
+        |--------------------------------------------------------------------------
+        | Normalize supported types
+        |--------------------------------------------------------------------------
+        */
         return match ($type) {
 
+            /*
+            |--------------------------------------------------------------------------
+            | Text
+            |--------------------------------------------------------------------------
+            */
             'text',
             'textbox',
             'input',
             'textinput' =>
                 'text',
 
+
+            /*
+            |--------------------------------------------------------------------------
+            | Textarea
+            |--------------------------------------------------------------------------
+            */
             'textarea',
             'multiline',
             'longtext' =>
                 'textarea',
 
+
+            /*
+            |--------------------------------------------------------------------------
+            | Email
+            |--------------------------------------------------------------------------
+            */
             'email',
-            'emailaddress' =>
+            'emailaddress',
+            'mail' =>
                 'email',
 
+
+            /*
+            |--------------------------------------------------------------------------
+            | Phone
+            |--------------------------------------------------------------------------
+            */
             'phone',
             'tel',
             'telephone',
-            'mobilenumber' =>
+            'mobile' =>
                 'phone',
 
+
+            /*
+            |--------------------------------------------------------------------------
+            | Number
+            |--------------------------------------------------------------------------
+            */
             'number',
             'numeric',
             'integer',
-            'decimal',
-            'float',
-            'amount' =>
+            'decimal' =>
                 'number',
 
+
+            /*
+            |--------------------------------------------------------------------------
+            | Date
+            |--------------------------------------------------------------------------
+            */
             'date',
             'datepicker' =>
                 'date',
 
+
+            /*
+            |--------------------------------------------------------------------------
+            | Dropdown / Select
+            |--------------------------------------------------------------------------
+            |
+            | Excel may contain:
+            |
+            | dropdown
+            | drop-down
+            | select
+            | choice
+            | choices
+            |
+            | ALL become:
+            |
+            | select
+            |
+            |--------------------------------------------------------------------------
+            */
             'dropdown',
             'select',
-            'selectbox' =>
-                'dropdown',
-
-            'radio',
             'choice',
-            'choices',
+            'choices' =>
+                'select',
+
+
+            /*
+            |--------------------------------------------------------------------------
+            | Radio
+            |--------------------------------------------------------------------------
+            */
+            'radio',
+            'radiobutton',
             'singlechoice' =>
                 'radio',
 
+
+            /*
+            |--------------------------------------------------------------------------
+            | Checkbox
+            |--------------------------------------------------------------------------
+            */
             'checkbox',
             'checkboxes',
             'multichoice',
             'multiplechoice' =>
                 'checkbox',
 
+
+            /*
+            |--------------------------------------------------------------------------
+            | File
+            |--------------------------------------------------------------------------
+            */
             'file',
             'upload',
             'fileupload',
             'attachment' =>
                 'file',
 
-            'rating',
-            'stars',
-            'star' =>
-                'rating',
 
+            /*
+            |--------------------------------------------------------------------------
+            | Unknown / empty type
+            |--------------------------------------------------------------------------
+            */
             default =>
                 $this->inferTypeFromLabel(
                     $label
@@ -1077,7 +699,8 @@ class ExcelFormImportService
 
 
     /**
-     * Infer field type from label.
+     * Infer field type from label
+     * when Excel Type is empty or unknown.
      */
     protected function inferTypeFromLabel(
         string $label
@@ -1088,12 +711,12 @@ class ExcelFormImportService
                 trim($label)
             );
 
+
         /*
         |--------------------------------------------------------------------------
         | Email
         |--------------------------------------------------------------------------
         */
-
         if (
             str_contains(
                 $label,
@@ -1103,12 +726,12 @@ class ExcelFormImportService
             return 'email';
         }
 
+
         /*
         |--------------------------------------------------------------------------
         | Phone
         |--------------------------------------------------------------------------
         */
-
         if (
             str_contains(
                 $label,
@@ -1124,55 +747,35 @@ class ExcelFormImportService
                 $label,
                 'telephone'
             )
-            ||
-            str_contains(
-                $label,
-                'contact number'
-            )
         ) {
             return 'phone';
         }
+
 
         /*
         |--------------------------------------------------------------------------
         | Date
         |--------------------------------------------------------------------------
         */
-
         if (
             str_contains(
                 $label,
                 'date'
             )
-            ||
-            str_contains(
-                $label,
-                'dob'
-            )
-            ||
-            str_contains(
-                $label,
-                'birth date'
-            )
         ) {
             return 'date';
         }
+
 
         /*
         |--------------------------------------------------------------------------
         | File
         |--------------------------------------------------------------------------
         */
-
         if (
             str_contains(
                 $label,
                 'resume'
-            )
-            ||
-            str_contains(
-                $label,
-                'cv'
             )
             ||
             str_contains(
@@ -1193,13 +796,18 @@ class ExcelFormImportService
             return 'file';
         }
 
+
         /*
         |--------------------------------------------------------------------------
         | Number
         |--------------------------------------------------------------------------
         */
-
         if (
+            str_contains(
+                $label,
+                'experience'
+            )
+            ||
             str_contains(
                 $label,
                 'age'
@@ -1214,70 +822,16 @@ class ExcelFormImportService
                 $label,
                 'number'
             )
-            ||
-            str_contains(
-                $label,
-                'quantity'
-            )
-            ||
-            str_contains(
-                $label,
-                'experience'
-            )
-            ||
-            str_contains(
-                $label,
-                'percentage'
-            )
-            ||
-            str_contains(
-                $label,
-                'price'
-            )
         ) {
             return 'number';
         }
 
+
         /*
         |--------------------------------------------------------------------------
-        | Long text
+        | Default
         |--------------------------------------------------------------------------
         */
-
-        if (
-            str_contains(
-                $label,
-                'description'
-            )
-            ||
-            str_contains(
-                $label,
-                'comments'
-            )
-            ||
-            str_contains(
-                $label,
-                'address'
-            )
-            ||
-            str_contains(
-                $label,
-                'message'
-            )
-            ||
-            str_contains(
-                $label,
-                'details'
-            )
-            ||
-            str_contains(
-                $label,
-                'summary'
-            )
-        ) {
-            return 'textarea';
-        }
-
         return 'text';
     }
 
@@ -1293,11 +847,26 @@ class ExcelFormImportService
             return false;
         }
 
-        if (
-            is_bool($value)
-        ) {
+
+        /*
+        |--------------------------------------------------------------------------
+        | Boolean values
+        |--------------------------------------------------------------------------
+        */
+        if (is_bool($value)) {
             return $value;
         }
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | Numeric values
+        |--------------------------------------------------------------------------
+        */
+        if (is_numeric($value)) {
+            return ((int) $value) === 1;
+        }
+
 
         $value =
             strtolower(
@@ -1305,6 +874,7 @@ class ExcelFormImportService
                     (string) $value
                 )
             );
+
 
         return in_array(
             $value,
@@ -1324,137 +894,166 @@ class ExcelFormImportService
     /**
      * Normalize options.
      *
-     * Supports:
+     * Excel example:
      *
-     * Male | Female | Other
+     * Male|Female|Other
      *
-     * Male, Female, Other
+     * becomes:
      *
-     * Male
-     * Female
-     * Other
+     * [
+     *     [
+     *         'label' => 'Male',
+     *         'value' => 'male'
+     *     ],
+     *     ...
+     * ]
      */
     protected function normalizeOptions(
         mixed $value
     ): array {
 
-        if (
-            $value === null
-        ) {
+        if ($value === null) {
             return [];
         }
 
+
         /*
         |--------------------------------------------------------------------------
-        | If an array is supplied
+        | If Excel already gives us an array
         |--------------------------------------------------------------------------
         */
+        if (is_array($value)) {
 
-        if (
-            is_array($value)
-        ) {
-
-            $options = [];
+            $result = [];
 
             foreach ($value as $option) {
 
-                $option =
-                    trim(
-                        (string) $option
-                    );
+                if (is_array($option)) {
 
-                if ($option === '') {
+                    $label =
+                        trim(
+                            (string) (
+                                $option['label']
+                                ??
+                                $option['value']
+                                ??
+                                ''
+                            )
+                        );
+
+                    $optionValue =
+                        trim(
+                            (string) (
+                                $option['value']
+                                ??
+                                Str::snake($label)
+                            )
+                        );
+
+                } else {
+
+                    $label =
+                        trim(
+                            (string) $option
+                        );
+
+                    $optionValue =
+                        Str::snake(
+                            $label
+                        );
+                }
+
+
+                if ($label === '') {
                     continue;
                 }
 
-                $options[] = $option;
+
+                $result[] = [
+
+                    'label' =>
+                        $label,
+
+                    'value' =>
+                        $optionValue,
+                ];
             }
 
+
             return array_values(
-                array_unique(
-                    $options
-                )
+                $result
             );
         }
 
+
+        /*
+        |--------------------------------------------------------------------------
+        | Convert value to string
+        |--------------------------------------------------------------------------
+        */
         $value =
             trim(
                 (string) $value
             );
 
+
         if ($value === '') {
             return [];
         }
 
-        /*
-        |--------------------------------------------------------------------------
-        | Pipe-separated
-        |--------------------------------------------------------------------------
-        */
-
-        if (
-            str_contains(
-                $value,
-                '|'
-            )
-        ) {
-
-            $options =
-                preg_split(
-                    '/\s*\|\s*/',
-                    $value
-                );
 
         /*
         |--------------------------------------------------------------------------
-        | Comma-separated
+        | Support pipe-separated options
+        |--------------------------------------------------------------------------
+        |
+        | Male|Female|Other
+        |
         |--------------------------------------------------------------------------
         */
+        $options =
+            preg_split(
+                '/\s*\|\s*/',
+                $value
+            );
 
-        } elseif (
-            str_contains(
-                $value,
-                ','
-            )
-        ) {
-
-            $options =
-                preg_split(
-                    '/\s*,\s*/',
-                    $value
-                );
-
-        /*
-        |--------------------------------------------------------------------------
-        | Single option
-        |--------------------------------------------------------------------------
-        */
-
-        } else {
-
-            $options = [
-                $value,
-            ];
-        }
 
         if (!$options) {
             return [];
         }
 
-        return array_values(
-            array_unique(
-                array_filter(
-                    array_map(
-                        fn ($option) =>
-                            trim(
-                                (string) $option
-                            ),
-                        $options
+
+        $result = [];
+
+
+        foreach ($options as $option) {
+
+            $label =
+                trim(
+                    (string) $option
+                );
+
+
+            if ($label === '') {
+                continue;
+            }
+
+
+            $result[] = [
+
+                'label' =>
+                    $label,
+
+                'value' =>
+                    Str::snake(
+                        $label
                     ),
-                    fn ($option) =>
-                        $option !== ''
-                )
-            )
+            ];
+        }
+
+
+        return array_values(
+            $result
         );
     }
 }
