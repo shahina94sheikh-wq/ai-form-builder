@@ -36,6 +36,22 @@ class FormBuilder extends Component
 
     /*
     |--------------------------------------------------------------------------
+    | Conditional Logic Builder State
+    |--------------------------------------------------------------------------
+    */
+
+    public ?string $logicSourceField = null;
+
+    public string $logicOperator = 'equals';
+
+    public string $logicValue = '';
+
+    public string $logicAction = 'show';
+
+    public ?string $logicTargetField = null;
+
+    /*
+    |--------------------------------------------------------------------------
     | Mount
     |--------------------------------------------------------------------------
     */
@@ -44,9 +60,7 @@ class FormBuilder extends Component
     {
         $this->form = $form;
 
-        $this->schema = $this->normalizeSchema(
-            $form->schema ?? []
-        );
+        $this->schema = $form->schema ?? [];
 
         /*
         |--------------------------------------------------------------------------
@@ -570,86 +584,6 @@ class FormBuilder extends Component
 
     /*
     |--------------------------------------------------------------------------
-    | Normalize Field Type
-    |--------------------------------------------------------------------------
-    |
-    | Convert legacy/imported field type aliases to the canonical
-    | field types supported by the builder.
-    |
-    */
-
-    protected function normalizeFieldType(?string $type): string
-    {
-        $type = strtolower(trim($type ?? ''));
-
-        return match ($type) {
-            // Dropdown aliases
-            'dropdown',
-            'drop-down',
-            'choice',
-            'choices',
-            'select' => 'select',
-
-            // Radio aliases
-            'radio',
-            'radio button',
-            'single choice' => 'radio',
-
-            // Checkbox aliases
-            'checkbox',
-            'checkboxes',
-            'multiple choice' => 'checkbox',
-
-            // Text aliases
-            'textbox',
-            'text box',
-            'text input',
-            'input',
-            'text' => 'text',
-
-            // Textarea aliases
-            'textarea',
-            'text area',
-            'long text' => 'textarea',
-
-            // Email aliases
-            'email',
-            'e-mail' => 'email',
-
-            // Number aliases
-            'number',
-            'numeric',
-            'integer' => 'number',
-
-            // Phone aliases
-            'phone',
-            'telephone',
-            'mobile' => 'phone',
-
-            // Date
-            'date' => 'date',
-
-            // File
-            'file',
-            'upload',
-            'file upload' => 'file',
-
-            // Heading
-            'heading',
-            'section heading',
-            'title' => 'heading',
-
-            // Rating
-            'rating',
-            'stars',
-            'star rating' => 'rating',
-
-            default => $type ?: 'text',
-        };
-    }
-
-    /*
-    |--------------------------------------------------------------------------
     | Normalize Schema
     |--------------------------------------------------------------------------
     |
@@ -726,9 +660,9 @@ class FormBuilder extends Component
                         $field['id']
                         ?? 'field_' . Str::random(10);
 
-                    $field['type'] = $this->normalizeFieldType(
-                        $field['type'] ?? 'text'
-                    );
+                    $field['type'] =
+                        $field['type']
+                        ?? 'text';
 
                     $field['label'] =
                         $field['label']
@@ -1205,6 +1139,146 @@ class FormBuilder extends Component
 
         /*
         |--------------------------------------------------------------------------
+        | Conditional Logic validation
+        |--------------------------------------------------------------------------
+        */
+
+        if (
+            isset($schema['logic']) &&
+            !is_array($schema['logic'])
+        ) {
+            $errors[] = 'Schema logic must be an array.';
+        }
+
+        $fieldKeys = [];
+
+        foreach ($schema['sections'] as $section) {
+            foreach ($section['fields'] ?? [] as $field) {
+                if (
+                    isset($field['id']) &&
+                    is_string($field['id']) &&
+                    trim($field['id']) !== ''
+                ) {
+                    $fieldKeys[$field['id']] = true;
+                }
+
+                if (
+                    isset($field['key']) &&
+                    is_string($field['key']) &&
+                    trim($field['key']) !== ''
+                ) {
+                    $fieldKeys[$field['key']] = true;
+                }
+            }
+        }
+
+        $allowedLogicOperators = [
+            'equals',
+            'not_equals',
+            'contains',
+            'not_contains',
+            'greater_than',
+            'less_than',
+            'greater_or_equal',
+            'less_or_equal',
+        ];
+
+        $allowedLogicActions = [
+            'show',
+            'hide',
+        ];
+
+        foreach ($schema['logic'] ?? [] as $logicIndex => $rule) {
+
+            if (!is_array($rule)) {
+                $errors[] =
+                    "Logic rule {$logicIndex} must be an object.";
+
+                continue;
+            }
+
+            $when = $rule['when'] ?? null;
+
+            if (!is_array($when)) {
+                $errors[] =
+                    "Logic rule {$logicIndex} must contain a when object.";
+
+                continue;
+            }
+
+            $source =
+                $when['field']
+                ?? null;
+
+            if (
+                !is_string($source) ||
+                !isset($fieldKeys[$source])
+            ) {
+                $errors[] =
+                    "Logic rule {$logicIndex} references an invalid source field.";
+            }
+
+            $operator =
+                $when['operator']
+                ?? null;
+
+            if (
+                !is_string($operator) ||
+                !in_array(
+                    $operator,
+                    $allowedLogicOperators,
+                    true
+                )
+            ) {
+                $errors[] =
+                    "Logic rule {$logicIndex} has an unsupported operator.";
+            }
+
+            if (!array_key_exists('value', $when)) {
+                $errors[] =
+                    "Logic rule {$logicIndex} must contain a comparison value.";
+            }
+
+            $action =
+                $rule['action']
+                ?? null;
+
+            if (
+                !is_string($action) ||
+                !in_array(
+                    $action,
+                    $allowedLogicActions,
+                    true
+                )
+            ) {
+                $errors[] =
+                    "Logic rule {$logicIndex} has an unsupported action.";
+            }
+
+            $target =
+                $rule['target']
+                ?? null;
+
+            if (
+                !is_string($target) ||
+                !isset($fieldKeys[$target])
+            ) {
+                $errors[] =
+                    "Logic rule {$logicIndex} references an invalid target field.";
+            }
+
+            if (
+                is_string($source) &&
+                is_string($target) &&
+                $source === $target
+            ) {
+                $errors[] =
+                    "Logic rule {$logicIndex} cannot target its source field.";
+            }
+        }
+
+        /*
+        |--------------------------------------------------------------------------
         | Duplicate field keys
         |--------------------------------------------------------------------------
         */
@@ -1560,15 +1634,172 @@ class FormBuilder extends Component
     {
         $this->form->refresh();
 
-        $this->schema = $this->normalizeSchema(
-            $this->form->schema ?? []
-        );
+        $this->schema =
+            $this->form->schema ?? [];
 
         $this->syncJson();
 
         $this->selectedField = null;
 
         $this->selectedFieldData = [];
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Conditional Logic
+    |--------------------------------------------------------------------------
+    */
+
+    public function addLogicRule(): void
+    {
+        $this->resetErrorBag('schemaJson');
+
+        if (
+            !$this->logicSourceField ||
+            !$this->logicTargetField
+        ) {
+            $this->addError(
+                'logic',
+                'Please select both the source and target fields.'
+            );
+
+            return;
+        }
+
+        if (
+            $this->logicSourceField ===
+            $this->logicTargetField
+        ) {
+            $this->addError(
+                'logic',
+                'The source and target fields must be different.'
+            );
+
+            return;
+        }
+
+        $allowedOperators = [
+            'equals',
+            'not_equals',
+            'contains',
+            'not_contains',
+            'greater_than',
+            'less_than',
+            'greater_or_equal',
+            'less_or_equal',
+        ];
+
+        $allowedActions = [
+            'show',
+            'hide',
+        ];
+
+        if (
+            !in_array(
+                $this->logicOperator,
+                $allowedOperators,
+                true
+            )
+        ) {
+            $this->addError(
+                'logic',
+                'Invalid conditional logic operator.'
+            );
+
+            return;
+        }
+
+        if (
+            !in_array(
+                $this->logicAction,
+                $allowedActions,
+                true
+            )
+        ) {
+            $this->addError(
+                'logic',
+                'Invalid conditional logic action.'
+            );
+
+            return;
+        }
+
+        if (
+            trim($this->logicValue) === ''
+        ) {
+            $this->addError(
+                'logic',
+                'Please provide a comparison value.'
+            );
+
+            return;
+        }
+
+        $this->schema['logic'] =
+            is_array($this->schema['logic'] ?? null)
+                ? $this->schema['logic']
+                : [];
+
+        $this->schema['logic'][] = [
+            'when' => [
+                'field' => $this->logicSourceField,
+                'operator' => $this->logicOperator,
+                'value' => $this->logicValue,
+            ],
+            'action' => $this->logicAction,
+            'target' => $this->logicTargetField,
+        ];
+
+        $validationErrors =
+            $this->validateSchema($this->schema);
+
+        if (!empty($validationErrors)) {
+            array_pop($this->schema['logic']);
+
+            $this->addError(
+                'logic',
+                implode(' ', $validationErrors)
+            );
+
+            return;
+        }
+
+        $this->resetLogicBuilder();
+
+        $this->syncJson();
+    }
+
+    public function removeLogicRule(int $index): void
+    {
+        if (
+            !isset(
+                $this->schema['logic'][$index]
+            )
+        ) {
+            return;
+        }
+
+        unset(
+            $this->schema['logic'][$index]
+        );
+
+        $this->schema['logic'] =
+            array_values(
+                $this->schema['logic']
+            );
+
+        $this->syncJson();
+    }
+
+    public function resetLogicBuilder(): void
+    {
+        $this->logicSourceField = null;
+        $this->logicOperator = 'equals';
+        $this->logicValue = '';
+        $this->logicAction = 'show';
+        $this->logicTargetField = null;
+
+        $this->resetErrorBag('logic');
     }
 
     /*
