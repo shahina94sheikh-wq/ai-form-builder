@@ -148,6 +148,19 @@ class FormBuilder extends Component
                     $field['type']
                     ?? 'text';
 
+                /*
+                |--------------------------------------------------------------------------
+                | Backward compatibility for imported schemas
+                |--------------------------------------------------------------------------
+                | Some imported/older schemas use "dropdown" while the
+                | application uses "select" internally. Normalize it here so
+                | existing schemas continue to work without changing the
+                | canonical field type used by the builder.
+                */
+                if ($field['type'] === 'dropdown') {
+                    $field['type'] = 'select';
+                }
+
                 $field['label'] =
                     $field['label']
                     ?? 'Untitled Field';
@@ -663,6 +676,17 @@ class FormBuilder extends Component
                     $field['type'] =
                         $field['type']
                         ?? 'text';
+
+                    /*
+                    |--------------------------------------------------------------------------
+                    | Backward compatibility for imported schemas
+                    |--------------------------------------------------------------------------
+                    | Normalize the legacy "dropdown" type to the canonical
+                    | "select" type before validation.
+                    */
+                    if ($field['type'] === 'dropdown') {
+                        $field['type'] = 'select';
+                    }
 
                     $field['label'] =
                         $field['label']
@@ -2118,6 +2142,7 @@ class FormBuilder extends Component
         $this->resetErrorBag(
             'publish'
         );
+      
 
         /*
         |--------------------------------------------------------------------------
