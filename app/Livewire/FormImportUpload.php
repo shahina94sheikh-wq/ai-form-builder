@@ -314,9 +314,8 @@ class FormImportUpload extends Component
         } catch (\Throwable $e) {
 
             report($e);
-
-
-            if ($this->import) {
+           
+            //if ($this->import) {
 
                 $this->import->update([
                     'status' =>
@@ -329,7 +328,7 @@ class FormImportUpload extends Component
                         ],
                     ],
                 ]);
-            }
+            //}
 
 
             $this->uploadError =
@@ -483,14 +482,22 @@ class FormImportUpload extends Component
         |--------------------------------------------------------------------------
         */
 
-        $hasFields = collect(
-            $parsed['sections'] ?? []
-        )->contains(function ($section) {
+        /*$sections = [];
 
-            return !empty(
-                $section['fields'] ?? []
-            );
-        });
+        if (
+            isset($parsed['sections']) &&
+            is_array($parsed['sections'])
+        ) {
+            $sections = $parsed['sections'];
+        }*/
+
+        /** @var mixed $rawSections */
+        $rawSections = $parsed['sections'] ?? null;
+
+        $sections = is_array($rawSections)
+            ? $rawSections
+            : [];
+
 
 
         /*
@@ -499,7 +506,8 @@ class FormImportUpload extends Component
         |--------------------------------------------------------------------------
         */
 
-        if (!$hasFields) {
+     
+        if ($sections === []) {
 
             $message =
                 'No form fields could be detected in this '
@@ -557,7 +565,8 @@ class FormImportUpload extends Component
                 . $this->import->filename,
 
             'sections' =>
-                $parsed['sections'],
+                //$parsed['sections'],
+                $sections,
 
             'settings' => [
 

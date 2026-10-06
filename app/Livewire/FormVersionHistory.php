@@ -3,6 +3,7 @@
 namespace App\Livewire;
 
 use App\Models\Form;
+use App\Models\FormVersion;
 use Livewire\Component;
 
 class FormVersionHistory extends Component
@@ -35,6 +36,8 @@ class FormVersionHistory extends Component
 
       public function restoreVersion(int $versionId): void
 {
+    /** @var FormVersion|null $version */
+    
     $version = $this->form
         ->versions()
         ->whereKey($versionId)

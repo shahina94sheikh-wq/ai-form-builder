@@ -3,6 +3,7 @@
 namespace App\Jobs;
 
 use App\Models\AiGeneration;
+use App\Models\Form;
 use App\Services\OpenAiFormService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -52,6 +53,7 @@ class EditAiForm implements ShouldQueue
     |--------------------------------------------------------------------------
     */
 
+    /** @var Form|null $form */
     $form = $this->generation->form;
 
     if (!$form) {
@@ -70,7 +72,7 @@ class EditAiForm implements ShouldQueue
     $currentSchema = $form->schema;
 
     if (
-        !is_array($currentSchema) ||
+        
         empty($currentSchema)
     ) {
         throw new \RuntimeException(
@@ -106,6 +108,28 @@ class EditAiForm implements ShouldQueue
         throw new \RuntimeException(
             'AI returned an invalid form schema.'
         );
+    }
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | Preserve existing conditional logic
+    |--------------------------------------------------------------------------
+    |
+    | Conditional logic is part of the form schema. If an AI response ever
+    | omits the top-level logic property, keep the existing rules instead of
+    | allowing an unrelated AI edit to delete them.
+    |
+    | If the user explicitly edits conditional logic, the AI response already
+    | contains the requested logic and this fallback does not overwrite it.
+    |--------------------------------------------------------------------------
+    */
+
+    if (
+        !array_key_exists('logic', $newSchema) &&
+        array_key_exists('logic', $currentSchema)
+    ) {
+        $newSchema['logic'] = $currentSchema['logic'];
     }
 
 

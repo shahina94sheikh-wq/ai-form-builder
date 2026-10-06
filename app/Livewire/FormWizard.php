@@ -4,6 +4,7 @@ namespace App\Livewire;
 
 use App\Models\Form;
 use Illuminate\Support\Str;
+use Livewire\Attributes\On;
 use Livewire\Component;
 
 class FormWizard extends Component
@@ -147,13 +148,8 @@ class FormWizard extends Component
         */
 
         if ($this->step === 2) {
-
-            if ($this->form) {
-                $this->form->refresh();
-            }
-
-            $this->step = 3;
-
+            $this->dispatch('wizard-save-builder')
+                ->to(FormBuilder::class);
             return;
         }
 
@@ -189,6 +185,17 @@ class FormWizard extends Component
         if ($this->step > 1) {
             $this->step--;
         }
+    }
+
+    #[On('wizard-builder-saved')]
+    public function completeBuilderStep(): void
+    {
+        if ($this->step !== 2 || !$this->form) {
+            return;
+        }
+
+        $this->form->refresh();
+        $this->step = 3;
     }
 
 

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Form;
+use App\Models\Submission;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class SubmissionController extends Controller
@@ -114,7 +115,7 @@ class SubmissionController extends Controller
                 | into memory at once.
                 |
                 */
-
+                /** @param \Illuminate\Database\Eloquent\Collection<int, Submission> $submissions */ 
                 $form
                     ->submissions()
                     ->latest()
@@ -126,6 +127,7 @@ class SubmissionController extends Controller
                         ) {
 
                             foreach ($submissions as $submission) {
+                                    /** @var Submission $submission */
 
                                 $row = [
                                     $submission->id,
@@ -144,9 +146,9 @@ class SubmissionController extends Controller
                                 | Make sure data is always an array.
                                 */
 
-                                if (!is_array($data)) {
+                               /* if (!is_array($data)) {
                                     $data = [];
-                                }
+                                }*/
 
 
                                 foreach ($fields as $field) {
