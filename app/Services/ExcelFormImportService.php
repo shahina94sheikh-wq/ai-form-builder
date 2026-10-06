@@ -980,11 +980,17 @@ class ExcelFormImportService
             }
 
 
+<<<<<<< HEAD
             /*return array_values(
                 $result
             );*/
 
               return $result;
+=======
+            return array_values(
+                $result
+            );
+>>>>>>> e8efb63d31a9b57f8e350df11b9b4b69a7b0454e
         }
 
 
@@ -1054,9 +1060,15 @@ class ExcelFormImportService
         }
 
 
+<<<<<<< HEAD
         /*return array_values(
             $result
         );*/
           return $result;
+=======
+        return array_values(
+            $result
+        );
+>>>>>>> e8efb63d31a9b57f8e350df11b9b4b69a7b0454e
     }
 }

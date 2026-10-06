@@ -229,7 +229,11 @@ class WordFormImportService
             /*
              * Defensive cleanup.
              */
+<<<<<<< HEAD
             /*$sections = array_values(
+=======
+            $sections = array_values(
+>>>>>>> e8efb63d31a9b57f8e350df11b9b4b69a7b0454e
                 array_filter(
                     $sections,
                     function ($section) {
@@ -238,8 +242,11 @@ class WordFormImportService
                 )
             );*/
 
+<<<<<<< HEAD
             //$sections = array_values($sections);
 
+=======
+>>>>>>> e8efb63d31a9b57f8e350df11b9b4b69a7b0454e
             /*
              * Clean option values and remove duplicates.
              */
@@ -326,11 +333,18 @@ class WordFormImportService
             return $this->cleanText($text);
         }
 
+<<<<<<< HEAD
         /*if (
             $element instanceof ListItem ||
             $element instanceof ListItemRun
         ) {*/
             if ($element instanceof ListItem) {
+=======
+        if (
+            $element instanceof ListItem ||
+            $element instanceof ListItemRun
+        ) {
+>>>>>>> e8efb63d31a9b57f8e350df11b9b4b69a7b0454e
 
             $text = '';
 

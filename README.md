@@ -1,3 +1,11 @@
+# Live Demo URL
+
+https://srv1910146.hstgr.cloud/forms
+
+# Public Git Repo
+
+https://github.com/shahina94sheikh-wq/ai-form-builder
+
 # AI Form Builder
 
 A Laravel + Livewire + MySQL form-builder application with:
